@@ -34,6 +34,9 @@ pub enum State {
     Patch,
     #[serde(rename = "vuln")]
     Vuln,
+    /// Analysis inconclusive - no distinguishing features found
+    #[serde(rename = "unknown")]
+    Unknown,
 }
 
 impl Display for State {
@@ -41,6 +44,7 @@ impl Display for State {
         let s = match self {
             State::Patch => "patch",
             State::Vuln => "vuln",
+            State::Unknown => "unknown",
         };
         write!(f, "{}", s)
     }

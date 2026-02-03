@@ -138,6 +138,7 @@ impl CompileScript for Cve {
         let commit = match state {
             State::Patch => self.commit.clone(),
             State::Vuln => self.commit.clone() + "~1",
+            State::Unknown => unreachable!("Unknown is a result state, not an input state"),
         };
         format!("git checkout {}", commit)
     }

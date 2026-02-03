@@ -52,7 +52,7 @@ impl IRAnalysis2 {
                     if std::fs::metadata(&new_vuln).is_err()
                         || std::fs::metadata(&new_patch).is_err()
                     {
-                        return IRState::Vuln;
+                        return IRState::Unknown;
                     }
                     let mut opt = IRAnalysis::new(&new_vuln, &new_patch, &self.diff_path);
                     opt.generate();
@@ -454,7 +454,7 @@ impl IRAnalysis {
             .map(|(name, _, _)| name)
             .collect::<Vec<_>>();
         if functions.is_empty() {
-            return Ok(IRState::Vuln);
+            return Ok(IRState::Unknown);
         }
         let exist_functions = functions
             .iter()
@@ -516,7 +516,7 @@ impl IRAnalysis {
                 }
             }
         }
-        IRState::Vuln
+        IRState::Unknown
     }
 
     fn generate_modify(
@@ -556,4 +556,6 @@ impl IRAnalysis {
 pub enum IRState {
     Patch,
     Vuln,
+    /// No distinguishing features found - analysis inconclusive
+    Unknown,
 }

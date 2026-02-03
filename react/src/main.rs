@@ -47,6 +47,7 @@ fn test_one_target(
     let result = match ir_analysis.test(&test_bitcode_path, solver) {
         IRState::Patch => State::Patch,
         IRState::Vuln => State::Vuln,
+        IRState::Unknown => State::Unknown,
     };
     // write to file log.txt
     let mut file = fs::OpenOptions::new()
@@ -112,15 +113,18 @@ fn main() {
             if args.cve.is_none() || cve.contains(args.cve.as_ref().unwrap()) {
                 let cve_info = cve_infos.get(cve).unwrap();
                 let results = test_each_cve(cve_info, tests, args.test, &args.binary, &mut sovler);
-                let prf = precision_recall_f1(&results);
-                println!("{}: {:?}", cve, prf);
+                let (p, r, f1, cov) = precision_recall_f1(&results);
+                println!("{}: P={:.3} R={:.3} F1={:.3} Cov={:.3}", cve, p, r, f1, cov);
                 let mut file = fs::OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(LOG_FILE)
                     .unwrap();
-                file.write_fmt(format_args!("{} {}: {:?}\n", cve_info.project, cve, prf))
-                    .unwrap();
+                file.write_fmt(format_args!(
+                    "{} {}: P={:.3} R={:.3} F1={:.3} Cov={:.3}\n",
+                    cve_info.project, cve, p, r, f1, cov
+                ))
+                .unwrap();
                 Some((cve, results))
             } else {
                 None
@@ -132,14 +136,22 @@ fn main() {
         .into_iter()
         .flat_map(|(_, results)| results)
         .collect::<Vec<_>>();
-    let prf = precision_recall_f1(&results);
-    println!("all: {:?}", prf);
+    let (p, r, f1, cov) = precision_recall_f1(&results);
+    let unknown_count = results.iter().filter(|r| r.result == State::Unknown).count();
+    println!(
+        "all: P={:.3} R={:.3} F1={:.3} Cov={:.3} ({} unknown out of {})",
+        p, r, f1, cov, unknown_count, results.len()
+    );
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(LOG_FILE)
         .unwrap();
-    file.write_fmt(format_args!("all: {:?}\n", prf)).unwrap();
+    file.write_fmt(format_args!(
+        "all: P={:.3} R={:.3} F1={:.3} Cov={:.3} ({} unknown out of {})\n",
+        p, r, f1, cov, unknown_count, results.len()
+    ))
+    .unwrap();
     // calculate for each compile: gcc, clang and O0, O1, O2, O3 combination
     let mut rq2 = HashMap::new();
     for compiler in ["gcc", "clang"] {
@@ -152,7 +164,7 @@ fn main() {
         rq2.get_mut(&(compiler, opt)).unwrap().push(test);
     }
     for ((compiler, opt), tests) in rq2 {
-        let prf = precision_recall_f1(&tests);
-        println!("{} {}: {:?}", compiler, opt, prf);
+        let (p, r, f1, cov) = precision_recall_f1(&tests);
+        println!("{} {}: P={:.3} R={:.3} F1={:.3} Cov={:.3}", compiler, opt, p, r, f1, cov);
     }
 }
