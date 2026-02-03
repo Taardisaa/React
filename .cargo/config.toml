@@ -1,2 +1,2 @@
 [env]
-LLVM_SYS_140_PREFIX = "/opt/homebrew/opt/llvm@14/"
+LLVM_SYS_140_PREFIX = "/usr/lib/llvm-14"
