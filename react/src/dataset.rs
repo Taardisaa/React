@@ -6,25 +6,62 @@ use serde::{Deserialize, Serialize};
 use serde_jsonlines::json_lines;
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, Clone, Hash)]
+#[serde(rename_all = "lowercase")]
 pub enum Project {
+    #[serde(alias = "FFmpeg")]
     FFmpeg,
-    #[serde(rename = "openssl")]
     OpenSSL,
-    #[serde(rename = "tcpdump")]
     Tcpdump,
-    #[serde(rename = "libxml2")]
     LibXml2,
+    Assimp,
+    Binutils,
+    Curl,
+    Dbus,
+    Elfutils,
+    Exiv2,
+    Expat,
+    Freetype,
+    Ghostscript,
+    Git,
+    Glib,
+    Gnuplot,
+    Gnutls,
+    Gzip,
+    #[serde(rename = "image-magick")]
+    ImageMagick,
+    Jasper,
+    Krb5,
+    Lcms,
+    Libarchive,
+    Libdwarf,
+    Libgd,
+    Libpng,
+    Libtiff,
+    Libx11,
+    Matio,
+    Mbedtls,
+    Mysql,
+    Ncurses,
+    Opencv,
+    OpenJDK,
+    Openjpeg,
+    Openssh,
+    Pcre2,
+    Perl,
+    Poppler,
+    Postgresql,
+    Ruby,
+    Emacs,
+    Sqlite,
+    Yasm,
 }
 
 impl Display for Project {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Project::FFmpeg => "FFmpeg",
-            Project::OpenSSL => "openssl",
-            Project::Tcpdump => "tcpdump",
-            Project::LibXml2 => "libxml2",
-        };
-        write!(f, "{}", s)
+        match self {
+            Project::ImageMagick => write!(f, "image-magick"),
+            _ => write!(f, "{}", format!("{:?}", self).to_lowercase()),
+        }
     }
 }
 
@@ -97,7 +134,8 @@ impl Display for TestResult {
 pub struct Cve {
     #[serde(rename = "CVE")]
     pub id: String,
-    pub func: String,
+    #[serde(default)]
+    pub func: Option<String>,
     pub vuln: String,
     pub patch: String,
     pub file: String,

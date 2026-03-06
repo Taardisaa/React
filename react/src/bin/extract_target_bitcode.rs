@@ -1,22 +1,28 @@
 use std::collections::HashMap;
 use std::{fs, path, process};
 
-use react::config::*;
+use clap::Parser;
+use react::config::Config;
 use react::dataset::*;
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// path to dataset directory
+    #[arg(short, long)]
+    dataset: String,
+}
+
 fn main() {
-    let cves = read_cves(CVE_INFO.as_str()).unwrap();
-    let tests = read_tests(TEST.as_str()).unwrap();
+    let args = Args::parse();
+    let cfg = Config::new(&args.dataset);
+    let cves = read_cves(&cfg.cve_info).unwrap();
+    let tests = read_tests(&cfg.test).unwrap();
 
     // map from cve id to function names
     let mut cve_function_map: HashMap<String, Vec<String>> = HashMap::new();
     for cve in cves.values() {
-        let source_diff_path = &format!(
-            "{}/{}_{}.diff",
-            DIFF_DIR.as_str(),
-            cve.id,
-            &cve.commit[0..6]
-        );
+        let source_diff_path = &format!("{}/{}_{}.diff", cfg.diff_dir, cve.id, &cve.commit[0..6]);
         let source_diff = source_analysis::SourceDiff::from_path(source_diff_path)
             .unwrap_or_else(|_| panic!("{} not found", source_diff_path));
         // we only need the function names
@@ -54,16 +60,16 @@ fn main() {
 
     for (test_file, function_list) in test_for_cve {
         let project = test_file2project.get(test_file).unwrap();
-        let binary = format!("{}/{}/{}", BINARIES_DIR.as_str(), project, test_file);
+        let binary = format!("{}/{}/{}", cfg.binaries_dir, project, test_file);
         let output = temp_dir.to_owned() + "/" + test_file + ".c";
 
         // get .bc file and .ll file
         let bc_path = format!("{}/{}.bc", temp_dir, test_file);
-        let ll_path = format!("{}/{}.ll", temp_dir, test_file);
-        let bc_name = format!("{}/{}/{}.bc", BITCODE_DIR.as_str(), project, test_file);
-        let ll_name = format!("{}/{}/{}.ll", BITCODE_DIR.as_str(), project, test_file);
+        // let ll_path = format!("{}/{}.ll", temp_dir, test_file);
+        let bc_name = format!("{}/{}/{}.bc", cfg.bitcode_dir, project, test_file);
+        // let ll_name = format!("{}/{}/{}.ll", cfg.bitcode_dir, project, test_file);
 
-        if path::Path::new(&bc_name).exists() && path::Path::new(&ll_name).exists() {
+        if path::Path::new(&bc_name).exists() {
             continue;
         }
 
@@ -83,6 +89,6 @@ fn main() {
             .output()
             .unwrap();
         let _ = fs::copy(&bc_path, bc_name).unwrap_or_else(|_| panic!("{} not found", &bc_path));
-        let _ = fs::copy(&ll_path, ll_name).unwrap_or_else(|_| panic!("{} not found", &ll_path));
+        // let _ = fs::copy(&ll_path, ll_name).unwrap_or_else(|_| panic!("{} not found", &ll_path));
     }
 }

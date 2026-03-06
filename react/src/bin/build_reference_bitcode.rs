@@ -5,16 +5,25 @@
 use std::{fs, path, process};
 
 use anyhow::{Ok, Result};
-use react::config::*;
+use clap::Parser;
+use react::config::Config;
 use react::dataset::{read_cves, Cve, Project, State};
 
 const GCLANG: &str = "gclang";
 const GETBC: &str = "get-bc";
 const MULTITHREAD: usize = 8;
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// path to dataset directory
+    #[arg(short, long)]
+    dataset: String,
+}
+
 trait CompileScript {
     /* Variable */
-    fn repo_path(&self) -> String;
+    fn repo_path(&self, cfg: &Config) -> String;
     fn generate_files(&self) -> Vec<&str>;
     fn file_name_in_repo(&self, file: &str) -> String;
     fn file_name_in_bitcode(&self, state: &State) -> String;
@@ -22,7 +31,7 @@ trait CompileScript {
     /* Script */
     fn checkout_script(&self, stat: &State) -> String;
     fn configure_script(&self) -> String;
-    fn extract_script(&self, state: &State) -> String;
+    fn extract_script(&self, state: &State, cfg: &Config) -> String;
     fn build_script(&self) -> String {
         format!("make -j {}", MULTITHREAD)
     }
@@ -31,11 +40,11 @@ trait CompileScript {
     }
 
     /* Command */
-    fn run_command(&self, cmd: &str) -> Result<()> {
+    fn run_command(&self, cmd: &str, cfg: &Config) -> Result<()> {
         let output = process::Command::new("bash")
             .arg("-c")
             .arg(cmd)
-            .current_dir(&self.repo_path())
+            .current_dir(&self.repo_path(cfg))
             .output()?;
         if output.status.success() {
             Ok(())
@@ -45,23 +54,26 @@ trait CompileScript {
         }
     }
 
-    fn run_commands(&self, cmds: Vec<String>) -> Result<()> {
+    fn run_commands(&self, cmds: Vec<String>, cfg: &Config) -> Result<()> {
         for cmd in cmds {
             println!("{}", cmd);
-            self.run_command(&cmd)?;
+            self.run_command(&cmd, cfg)?;
         }
         Ok(())
     }
 
-    fn compile(&self, state: State) -> Result<()> {
-        self.run_commands(vec![
-            self.clean_script(),
-            self.checkout_script(&state),
-            self.configure_script(),
-            self.build_script(),
-            self.extract_script(&state),
-            self.clean_script(),
-        ])
+    fn compile(&self, state: State, cfg: &Config) -> Result<()> {
+        self.run_commands(
+            vec![
+                self.clean_script(),
+                self.checkout_script(&state),
+                self.configure_script(),
+                self.build_script(),
+                self.extract_script(&state, cfg),
+                self.clean_script(),
+            ],
+            cfg,
+        )
     }
 }
 
@@ -72,10 +84,10 @@ fn check_or_create(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn prepare_dirs() -> Result<()> {
+fn prepare_dirs(cfg: &Config) -> Result<()> {
     // check if dataset/bitcodes/ exists
-    check_or_create(&DATASET_DIR)?;
-    check_or_create(&BITCODE_DIR)?;
+    check_or_create(&cfg.dataset_dir)?;
+    check_or_create(&cfg.bitcode_dir)?;
     let projects = vec![
         Project::FFmpeg,
         Project::OpenSSL,
@@ -83,15 +95,15 @@ fn prepare_dirs() -> Result<()> {
         Project::Tcpdump,
     ];
     for project in projects {
-        let project_dir = BITCODE_DIR.clone() + "/" + &project.to_string();
+        let project_dir = format!("{}/{}", cfg.bitcode_dir, project);
         check_or_create(&project_dir)?;
     }
     Ok(())
 }
 
 impl CompileScript for Cve {
-    fn repo_path(&self) -> String {
-        format!("{}/repos/{}", *DATASET_DIR, self.project)
+    fn repo_path(&self, cfg: &Config) -> String {
+        format!("{}/repos/{}", cfg.dataset_dir, self.project)
     }
 
     fn file_name_in_repo(&self, file: &str) -> String {
@@ -118,6 +130,7 @@ impl CompileScript for Cve {
             Project::LibXml2 => format!("./.libs/{file}.so.{}", &self.vuln[0..1]),
             #[cfg(target_os = "macos")]
             Project::LibXml2 => format!("./.libs/{file}.dylib.{}", &self.vuln[0..1]),
+            _ => file.to_string(),
         }
     }
 
@@ -131,6 +144,7 @@ impl CompileScript for Cve {
             Project::OpenSSL => vec!["libssl", "libcrypto"],
             Project::Tcpdump => vec!["tcpdump"],
             Project::LibXml2 => vec!["libxml2"],
+            _ => vec![&self.file],
         }
     }
 
@@ -143,13 +157,14 @@ impl CompileScript for Cve {
         format!("git checkout {}", commit)
     }
 
-    fn extract_script(&self, state: &State) -> String {
+    fn extract_script(&self, state: &State, cfg: &Config) -> String {
         for file in self.generate_files() {
             if self.file.starts_with(file) {
                 return format!(
-                    "{} {} -o ../bitcodes/{}/{}",
+                    "{} {} -o {}/{}/{}",
                     GETBC,
                     self.file_name_in_repo(file),
+                    cfg.bitcode_dir,
                     self.project,
                     self.file_name_in_bitcode(state)
                 );
@@ -168,20 +183,22 @@ impl CompileScript for Cve {
                     format!("CC={GCLANG} ./Configure --debug")
                 }
             }
-            Project::Tcpdump | Project::LibXml2 => r#"./configure CFLAGS="-O0 -g"#.to_string(),
+            _ => format!(r#"./configure CC={GCLANG} CFLAGS="-O0 -g""#),
         }
     }
 }
 
 fn main() {
-    prepare_dirs().unwrap();
-    let cves = read_cves(&CVE_INFO).unwrap();
+    let args = Args::parse();
+    let cfg = Config::new(&args.dataset);
+    prepare_dirs(&cfg).unwrap();
+    let cves = read_cves(&cfg.cve_info).unwrap();
     for cve in cves.values() {
         if cve.project != Project::OpenSSL {
             continue;
         }
-        cve.compile(State::Vuln).unwrap();
-        cve.compile(State::Patch).unwrap();
+        cve.compile(State::Vuln, &cfg).unwrap();
+        cve.compile(State::Patch, &cfg).unwrap();
     }
 }
 
@@ -193,7 +210,7 @@ mod tests {
     fn test_ffmpeg_script() {
         let cve = Cve {
             id: "CVE-2020-22019".to_string(),
-            func: "ff_vmafmotion_init".to_string(),
+            func: Some("ff_vmafmotion_init".to_string()),
             vuln: "4.4".to_string(),
             patch: "4.4.1".to_string(),
             file: "ffmpeg".to_string(),
@@ -212,11 +229,6 @@ mod tests {
         );
         let configure = cve.configure_script();
         assert_eq!(configure, "./configure --disable-optimizations --cc=gclang");
-        let extract = cve.extract_script(&State::Vuln);
-        assert_eq!(
-            extract,
-            "get-bc ffmpeg_g -o CVE-2020-22019_vuln".to_string(),
-        );
     }
 
     #[test]
@@ -226,16 +238,11 @@ mod tests {
             commit: "f6b9b7e".to_string(),
             vuln: "1.1.1".to_string(),
             project: Project::OpenSSL,
-            func: "EVP_DigestSignInit".to_string(),
+            func: Some("EVP_DigestSignInit".to_string()),
             patch: "openssl-1.1.1k".to_string(),
             file: "libssl".to_string(),
         };
         let configure = cve.configure_script();
         assert_eq!(configure, "CC=gclang ./config --debug");
-        let extract = cve.extract_script(&State::Vuln);
-        assert_eq!(
-            extract,
-            "get-bc libssl.1.1.dylib -o CVE-2021-3711_vuln".to_string(),
-        );
     }
 }

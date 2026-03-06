@@ -22,7 +22,10 @@ impl KBlock {
         self.insts.iter().map(move |i| function.get_inst(*i))
     }
 
-    pub fn index_insts<'a>(&'a self, function: &'a KFunction) -> impl Iterator<Item = (usize, &KInstruction)> {
+    pub fn index_insts<'a>(
+        &'a self,
+        function: &'a KFunction,
+    ) -> impl Iterator<Item = (usize, &KInstruction)> {
         self.insts.iter().map(move |i| (*i, function.get_inst(*i)))
     }
 }
